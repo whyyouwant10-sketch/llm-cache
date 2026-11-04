@@ -71,14 +71,20 @@ func proxy(args []string) {
 	if err = llmcache.ValidateTTL(*ttl); err != nil {
 		log.Fatal(err)
 	}
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := proxyHandler(base, store, *ttl)
+	log.Printf("listening on %s", *listen)
+	log.Fatal(http.ListenAndServe(*listen, handler))
+}
+
+func proxyHandler(base *url.URL, store llmcache.Store, ttl time.Duration) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		target := *base
 		target.Path = strings.TrimRight(base.Path, "/") + r.URL.Path
 		target.RawQuery = r.URL.RawQuery
 		out := r.Clone(r.Context())
 		out.URL = &target
 		out.Host = target.Host
-		resp, err := (&llmcache.Transport{Next: http.DefaultTransport, Store: store, TTL: *ttl}).RoundTrip(out)
+		resp, err := (&llmcache.Transport{Next: http.DefaultTransport, Store: store, TTL: ttl}).RoundTrip(out)
 		if err != nil {
 			http.Error(w, err.Error(), 502)
 			return
@@ -92,8 +98,6 @@ func proxy(args []string) {
 		w.WriteHeader(resp.StatusCode)
 		_, _ = ioCopy(w, resp.Body)
 	})
-	log.Printf("listening on %s", *listen)
-	log.Fatal(http.ListenAndServe(*listen, handler))
 }
 func ioCopy(dst http.ResponseWriter, src io.Reader) (int64, error) { return io.Copy(dst, src) }
 func stats(args []string) {
